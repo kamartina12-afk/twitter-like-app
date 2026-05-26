@@ -22,6 +22,7 @@ interface Post {
   repliesCount: number;
   imageUrl?: string;
   gifUrl?: string;
+  videoUrl?: string;
 }
 
 export type { UserProfile, Post };

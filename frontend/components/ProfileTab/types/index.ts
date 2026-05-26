@@ -16,6 +16,8 @@ export interface Post {
   id: string;
   content: string;
   imageUrl?: string;
+  gifUrl?: string;
+  videoUrl?: string;
   createdAt: string;
   likesCount: number;
   repliesCount: number;

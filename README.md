@@ -24,6 +24,7 @@ A modern Twitter-like social media application built with Next.js and NestJS, fe
 - **AI Suggestions**: Optional AI-powered post suggestions (Google Gemini)
 - **Search**: Search for users by username or email
 - **Theme Support**: Light and dark mode toggle
+- **Mobile app (Expo)**: Native client under **`mobile/`** — same backend and Firebase auth; feed, explore, chat, profiles, and more (see **`mobile/README.md`**).
 
 ## Technology Stack
 
@@ -47,6 +48,13 @@ A modern Twitter-like social media application built with Next.js and NestJS, fe
 - **Lucide React** - Icon library
 - **React Hook Form** - Form management
 - **Firebase Client SDK** - Sign-in and token management
+
+### Mobile (`mobile/`)
+
+- **Expo SDK 54** - Universal app with **Expo Router**
+- **expo-video** - In-feed and explore video playback (replacing deprecated `Video` from `expo-av` for UI video)
+- **expo-image-picker** - Media picking with current `mediaTypes` API
+- **TanStack Query**, **Firebase**, **Socket.IO client** - Aligned with backend APIs
 
 ## Prerequisites
 
@@ -122,6 +130,29 @@ NEXT_PUBLIC_FIREBASE_API_KEY=...
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=...
 NEXT_PUBLIC_FIREBASE_PROJECT_ID=...
 ```
+
+### 5. Mobile app (optional)
+
+```bash
+cd mobile
+yarn install
+```
+
+Create a **`mobile/.env`** (or use **`.env`** in `mobile/`) with at least:
+
+```env
+EXPO_PUBLIC_API_URL=http://localhost:3001
+# Plus the same EXPO_PUBLIC_FIREBASE_* variables as the web app (see mobile app config).
+```
+
+Start the dev server:
+
+```bash
+cd mobile
+npx expo start
+```
+
+Details: **`mobile/README.md`**.
 
 ## Rate limiting and third‑party APIs
 
@@ -207,6 +238,7 @@ This runs `lint` then `build` (backend then frontend). If any step fails, fix th
 
 ```
 twitter-app/
+├── mobile/                 # Expo (iOS / Android / web) — see mobile/README.md
 ├── backend/
 │   ├── src/
 │   │   ├── ai/            # AI post suggestions (Gemini)
@@ -300,6 +332,12 @@ twitter-app/
 ## Changelog
 
 See [CHANGELOG.md](./CHANGELOG.md) for a full list of changes.
+
+### 2026-03-22 – Mobile app (Expo), post video fields, feed updates
+
+- **Database / API:** Posts can store **`videoUrl`** and **`mediaAspectRatio`**; Prisma migration and backend post/notifications/saved-posts/users updates.
+- **Web feed:** Feed **`Post`** types and **`PostCard`** adjusted for posts that include video-related fields from the API.
+- **Mobile:** New **Expo Router** app under **`mobile/`** (auth, tabs, chat, explore, profiles). **expo-video** for playback; **expo-image-picker** `mediaTypes` arrays; shared screen types moved to **`mobile/types/`** so **`app/`** stays route-only.
 
 ### 2026-03-08 – Backend overhaul, Chat, Firebase auth
 

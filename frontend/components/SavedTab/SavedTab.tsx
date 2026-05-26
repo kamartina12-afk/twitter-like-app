@@ -140,7 +140,8 @@ export default function SavedTab({ searchQuery = '' }: SavedTabProps) {
           const next = names.map((n) => (n === collectionToManage.name ? updated.name : n));
           return {
             ...p,
-            collectionName: p.collectionName === collectionToManage.name ? updated.name : p.collectionName,
+            collectionName:
+              p.collectionName === collectionToManage.name ? updated.name : p.collectionName,
             collectionNames: next,
           };
         }),
@@ -303,10 +304,11 @@ export default function SavedTab({ searchQuery = '' }: SavedTabProps) {
             ) : (
               <SavedPostsGrid>
                 {searchFilteredPosts.map((post) => {
-                  const mediaSrc =
+                  const imageOrGifMediaSrc =
                     (post.isRepost ? post.originalPostGifUrl : post.gifUrl) ||
                     (post.isRepost ? post.originalPostImageUrl : post.imageUrl);
-                  const hasMedia = !!mediaSrc;
+                  const videoMediaSrc = post.isRepost ? post.originalPostVideoUrl : post.videoUrl;
+                  const hasMedia = !!(imageOrGifMediaSrc || videoMediaSrc);
 
                   return (
                     <SavedPostCard
@@ -316,16 +318,30 @@ export default function SavedTab({ searchQuery = '' }: SavedTabProps) {
                     >
                       {hasMedia && (
                         <SavedPostMediaWrapper>
-                          <SavedPostMedia src={mediaSrc} alt="Saved media" />
+                          {videoMediaSrc ? (
+                            <video
+                              src={videoMediaSrc}
+                              controls
+                              playsInline
+                              preload="metadata"
+                              style={{
+                                width: '100%',
+                                maxHeight: '300px',
+                                objectFit: 'contain',
+                                backgroundColor: 'rgb(var(--card))',
+                                display: 'block',
+                                borderRadius: 'inherit',
+                              }}
+                            />
+                          ) : (
+                            <SavedPostMedia src={imageOrGifMediaSrc} alt="Saved media" />
+                          )}
                         </SavedPostMediaWrapper>
                       )}
                       <SavedPostCardFooter>
                         <SavedPostAvatar>
                           {post.avatarUrl ? (
-                            <SavedPostAvatarImage
-                              src={post.avatarUrl}
-                              alt={post.authorUsername}
-                            />
+                            <SavedPostAvatarImage src={post.avatarUrl} alt={post.authorUsername} />
                           ) : (
                             <SavedPostAvatarLetter>
                               {(post.authorDisplayName || post.authorUsername)[0]?.toUpperCase()}

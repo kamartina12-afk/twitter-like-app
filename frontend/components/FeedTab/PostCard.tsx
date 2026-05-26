@@ -26,29 +26,7 @@ import {
   OriginalPostContent,
 } from './FeedTab.styles';
 import type { Post } from './types';
-import type { UseMutationResult } from '@tanstack/react-query';
-
-type PostCardProps = {
-  post: Post;
-  formatDate: (date: string) => string;
-  youRepostedLabel: string;
-  repostedLabel: string;
-  currentUserId: string | undefined;
-  isSaved: boolean;
-  isBlocked: boolean;
-  onHashtagSelect?: (tag: string) => void;
-  onComment: (post: Post) => void;
-  onRepost: (post: Post) => void;
-  onDelete: (post: Post) => void;
-  onToggleSave: (post: Post) => void;
-  onBlockUser: (id: string, username: string) => void;
-  likeMutation: UseMutationResult<void, Error, { postId: string; isLiked: boolean }>;
-  repostMutation: UseMutationResult<void, Error, { postId: string; isReposted: boolean; content?: string; imageUrl?: string; gifUrl?: string }>;
-  pollVoteMutation: UseMutationResult<unknown, Error, { postId: string; optionId: string }>;
-  deletePostMutation: UseMutationResult<void, Error, { postId: string }>;
-  showSaveButton?: boolean;
-  showBlockButton?: boolean;
-};
+import type { PostCardProps } from './types';
 
 export function PostCard({
   post,
@@ -83,10 +61,7 @@ export function PostCard({
     );
   }
 
-  const renderPoll = (
-    poll: NonNullable<Post['poll']>,
-    postId: string,
-  ) => {
+  const renderPoll = (poll: NonNullable<Post['poll']>, postId: string) => {
     const baseGradient = 'linear-gradient(90deg, #38bdf8, #6366f1, #ec4899)';
     const neutralBg = 'rgba(15, 23, 42, 0.04)';
     return (
@@ -334,12 +309,31 @@ export function PostCard({
                   <OriginalPostUsername>@{post.originalAuthorUsername}</OriginalPostUsername>
                 </OriginalPostHeader>
                 <OriginalPostContent>{post.originalPostContent}</OriginalPostContent>
-                {(post.originalPostGifUrl || post.originalPostImageUrl) && (
+                {(post.originalPostGifUrl ||
+                  post.originalPostImageUrl ||
+                  post.originalPostVideoUrl) && (
                   <PostMediaWrapper>
-                    <PostMedia
-                      src={post.originalPostGifUrl || post.originalPostImageUrl}
-                      alt="Original post media"
-                    />
+                    {post.originalPostVideoUrl ? (
+                      <video
+                        src={post.originalPostVideoUrl}
+                        controls
+                        playsInline
+                        preload="metadata"
+                        style={{
+                          width: '100%',
+                          maxHeight: '360px',
+                          objectFit: 'contain',
+                          background: 'rgb(var(--card))',
+                          display: 'block',
+                          borderRadius: 'inherit',
+                        }}
+                      />
+                    ) : (
+                      <PostMedia
+                        src={post.originalPostGifUrl || post.originalPostImageUrl}
+                        alt="Original post media"
+                      />
+                    )}
                   </PostMediaWrapper>
                 )}
                 {post.originalPostPoll && renderPoll(post.originalPostPoll, post.originalPostId!)}
@@ -347,9 +341,26 @@ export function PostCard({
             </>
           )}
 
-          {!post.isRepost && (post.gifUrl || post.imageUrl) && (
+          {!post.isRepost && (post.gifUrl || post.imageUrl || post.videoUrl) && (
             <PostMediaWrapper>
-              <PostMedia src={post.gifUrl || post.imageUrl} alt="Post media" />
+              {post.videoUrl ? (
+                <video
+                  src={post.videoUrl}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  style={{
+                    width: '100%',
+                    maxHeight: '360px',
+                    objectFit: 'contain',
+                    background: 'rgb(var(--card))',
+                    display: 'block',
+                    borderRadius: 'inherit',
+                  }}
+                />
+              ) : (
+                <PostMedia src={post.gifUrl || post.imageUrl} alt="Post media" />
+              )}
             </PostMediaWrapper>
           )}
 
@@ -395,8 +406,8 @@ export function PostCard({
             >
               <Heart
                 size={20}
-                fill={post.isLiked ? 'rgb(var(--accent))' : 'none'}
                 color={post.isLiked ? 'rgb(var(--accent))' : 'currentColor'}
+                fill={post.isLiked ? 'currentColor' : 'none'}
               />
               <PostActionCount style={{ color: post.isLiked ? 'rgb(var(--accent))' : 'inherit' }}>
                 {post.likesCount || 0}

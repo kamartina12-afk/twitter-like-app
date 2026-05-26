@@ -24,13 +24,21 @@ export class CommentController {
   async create(
     @Req() req: AuthRequest,
     @Param('postId') postId: string,
-    @Body() body: { content: string },
+    @Body() body: { content: string; parentId?: string | null },
   ) {
-    return this.commentService.create(req.user.uid, postId, body.content);
+    return this.commentService.create(
+      req.user.uid,
+      postId,
+      body.content,
+      body.parentId ?? undefined,
+    );
   }
 
   @Get(':postId')
-  async findByPost(@Param('postId') postId: string) {
-    return this.commentService.findByPost(postId);
+  async findByPost(
+    @Req() req: AuthRequest,
+    @Param('postId') postId: string,
+  ) {
+    return this.commentService.findByPost(postId, req.user.uid);
   }
 }

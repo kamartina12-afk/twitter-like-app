@@ -49,6 +49,8 @@ export class FollowService {
       const notification = await (this.prisma as any).notification.create({
         data: {
           userId: followingId,
+          // Store the actor so the mobile app can deep-link to the follower's profile.
+          actorId: followerId,
           type: 'follow',
           message: notificationMessage,
         },
@@ -70,6 +72,12 @@ export class FollowService {
         targetUser?.fcmToken,
         'New follower',
         notificationMessage,
+        {
+          data: {
+            type: 'follow',
+            href: `/profile/${followerId}`,
+          },
+        },
       );
     } catch {
       // ignore notification failures

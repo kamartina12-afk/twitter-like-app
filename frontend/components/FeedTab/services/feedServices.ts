@@ -19,6 +19,7 @@ export const feedServices = {
     content: string,
     imageUrl?: string,
     gifUrl?: string,
+    videoUrl?: string,
     poll?: {
       question?: string;
       options: string[];
@@ -31,7 +32,7 @@ export const feedServices = {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ content, imageUrl, gifUrl, poll }),
+      body: JSON.stringify({ content, imageUrl, gifUrl, videoUrl, poll }),
     });
     if (!response.ok) throw new Error('Failed to create post');
     return response.json();
@@ -92,25 +93,14 @@ export const feedServices = {
     return response.json();
   },
 
-  async repostPost(
-    token: string,
-    postId: string,
-    content?: string,
-    imageUrl?: string,
-    gifUrl?: string,
-    poll?: {
-      question?: string;
-      options: string[];
-      expiresAt: string;
-    },
-  ) {
+  async repostPost(token: string, postId: string, content?: string) {
     const response = await fetch(`${apiUrl}/posts`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ originalPostId: postId, content, imageUrl, gifUrl, poll }),
+      body: JSON.stringify({ originalPostId: postId, content }),
     });
     if (!response.ok) throw new Error('Failed to repost');
     return response.json();

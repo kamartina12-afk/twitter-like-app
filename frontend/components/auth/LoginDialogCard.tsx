@@ -34,7 +34,7 @@ export function LoginDialogCard({ onSuccess }: LoginDialogCardProps) {
     formState: { isSubmitting },
   } = useForm<LoginFormData>();
 
-  const { login } = useAuth();
+  const { login, signInWithGoogle } = useAuth();
   const router = useRouter();
 
   const onSubmit = async (data: LoginFormData) => {
@@ -46,6 +46,17 @@ export function LoginDialogCard({ onSuccess }: LoginDialogCardProps) {
       router.push('/home');
     } catch (err: any) {
       setError(err.message || 'Failed to login. Please try again.');
+    }
+  };
+
+  const onGoogleSignIn = async () => {
+    setError('');
+    try {
+      await signInWithGoogle();
+      onSuccess?.();
+      router.push('/home');
+    } catch (err: any) {
+      setError(err.message || 'Failed to sign in with Google. Please try again.');
     }
   };
 
@@ -61,6 +72,15 @@ export function LoginDialogCard({ onSuccess }: LoginDialogCardProps) {
         )}
       </CardHeader>
       <CardContent>
+        <Button
+          type="button"
+          variant="outline"
+          className="mb-4 w-full rounded-full text-base font-semibold"
+          onClick={onGoogleSignIn}
+          disabled={isSubmitting}
+        >
+          Continue with Google
+        </Button>
         <form className="space-y-5" onSubmit={handleSubmit(onSubmit)}>
           <FieldGroup>
             <Field>

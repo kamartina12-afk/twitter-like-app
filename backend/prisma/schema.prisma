@@ -43,6 +43,8 @@ model User {
   blockedBy    Block[] @relation("UserBlockedBy")
 
   pollVotes PollVote[]
+  postViews PostView[]
+  commentLikes CommentLike[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -55,12 +57,16 @@ model Post {
   content   String?
   imageUrl  String?
   gifUrl    String?
+  videoUrl  String?
+  /// width / height; used for masonry layouts (defaults to 1 when unknown)
+  mediaAspectRatio Float?
   createdAt DateTime @default(now())
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId String
 
   likes          Like[]
+  views          PostView[]
   comments       Comment[]
   reposts        Post[]    @relation("PostReposts")
   originalPost   Post?     @relation("PostReposts", fields: [originalPostId], references: [id])
@@ -69,8 +75,24 @@ model Post {
   hashtags   PostHashtag[]
   savedBy    SavedPost[]
   poll       Poll?
+  notifications Notification[]
 
   @@map("posts")
+}
+
+model PostView {
+  id        String   @id @default(uuid()) @db.Uuid
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId String @db.Uuid
+
+  @@index([postId])
+  @@index([userId])
+  @@map("post_views")
 }
 
 model Poll {
@@ -148,7 +170,28 @@ model Comment {
   post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
   postId String @db.Uuid
 
+  parentId String?  @db.Uuid
+  parent   Comment? @relation("CommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies  Comment[] @relation("CommentThread")
+
+  likes          CommentLike[]
+  notifications  Notification[]
+
   @@map("comments")
+}
+
+model CommentLike {
+  id        String   @id @default(uuid()) @db.Uuid
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  comment   Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  commentId String  @db.Uuid
+
+  @@unique([userId, commentId])
+  @@map("comment_likes")
 }
 
 model Like {
@@ -271,10 +314,16 @@ model Notification {
   id        String   @id @default(uuid()) @db.Uuid
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
-  type      String   // e.g. 'like' | 'comment' | 'follow' | 'system'
+  type      String   // e.g. 'like' | 'comment' | 'comment_reply' | 'comment_like' | 'follow' | 'system'
   message   String
   createdAt DateTime @default(now())
   readAt    DateTime?
+
+  postId String? @db.Uuid
+  post   Post?   @relation(fields: [postId], references: [id], onDelete: SetNull)
+
+  commentId String?  @db.Uuid
+  comment   Comment? @relation(fields: [commentId], references: [id], onDelete: SetNull)
 
   @@map("notifications")
 }

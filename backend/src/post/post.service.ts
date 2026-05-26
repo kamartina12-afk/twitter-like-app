@@ -6,11 +6,16 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../geminiAi/ai.service';
+import { FirebaseService, parseFirebaseStorageDownloadUrl } from '../firebase/firebase.service';
+import { NotificationsService } from '../notifications/notification.service';
 
 export interface CreatePostDto {
   content?: string;
-  imageUrl?: string;
+  /** Single image URL or an array of image URLs (stored as JSON when multiple). */
+  imageUrl?: string | string[];
   gifUrl?: string;
+  videoUrl?: string;
+  mediaAspectRatio?: number;
   originalPostId?: string;
   poll?: {
     question?: string;
@@ -24,14 +29,51 @@ export class PostService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
+    private readonly firebaseService: FirebaseService,
+    private readonly notifications: NotificationsService,
   ) {}
 
-  async create(userId: string, dto: CreatePostDto) {
-    const { content, imageUrl, gifUrl, originalPostId, poll } = dto;
+  /** Nested include for embedded original content on repost shells. */
+  private originalPostInclude() {
+    return {
+      user: true,
+      likes: true,
+      views: true,
+      comments: true,
+      reposts: true,
+      poll: {
+        include: {
+          options: {
+            include: {
+              votes: true,
+            },
+          },
+        },
+      },
+    };
+  }
 
-    if (!originalPostId && !content && !imageUrl && !gifUrl && !poll) {
+  async create(userId: string, dto: CreatePostDto) {
+    const { content, imageUrl, gifUrl, videoUrl, mediaAspectRatio, originalPostId, poll } =
+      dto;
+
+    const normalizedImageUrl: string | null =
+      Array.isArray(imageUrl) && imageUrl.length > 0
+        ? JSON.stringify(imageUrl)
+        : !Array.isArray(imageUrl)
+          ? imageUrl ?? null
+          : null;
+
+    if (
+      !originalPostId &&
+      !content &&
+      !normalizedImageUrl &&
+      !gifUrl &&
+      !videoUrl &&
+      !poll
+    ) {
       throw new BadRequestException(
-        'Post must have content, image, GIF or poll',
+        'Post must have content, image, GIF, video or poll',
       );
     }
 
@@ -40,8 +82,13 @@ export class PostService {
         const createdPost = await (tx as any).post.create({
           data: {
             content: content ?? null,
-            imageUrl: imageUrl ?? null,
+            imageUrl: normalizedImageUrl,
             gifUrl: gifUrl ?? null,
+            videoUrl: videoUrl ?? null,
+            mediaAspectRatio:
+              mediaAspectRatio != null && !Number.isNaN(mediaAspectRatio)
+                ? mediaAspectRatio
+                : null,
             userId,
           } as any,
         });
@@ -88,6 +135,12 @@ export class PostService {
         await this.syncPostHashtags(post.id, content);
       }
 
+      try {
+        await this.handleMentionsForPost(post.id, userId, content);
+      } catch {
+        // Mentions are best-effort; do not break post creation.
+      }
+
       const mentionsKittyBot = !!content && /@kittybot\b/i.test(content);
       if (mentionsKittyBot) {
         // Fire and forget; errors are handled inside
@@ -119,11 +172,25 @@ export class PostService {
       throw new BadRequestException('Already reposted');
     }
 
+    if (
+      imageUrl != null ||
+      gifUrl != null ||
+      videoUrl != null ||
+      poll != null ||
+      (mediaAspectRatio != null && !Number.isNaN(mediaAspectRatio))
+    ) {
+      throw new BadRequestException(
+        'Reposts may only include an optional caption; media and polls are not allowed',
+      );
+    }
+
     const repost = await (this.prisma as any).post.create({
       data: {
         content: content ?? null,
-        imageUrl: imageUrl ?? null,
-        gifUrl: gifUrl ?? null,
+        imageUrl: null,
+        gifUrl: null,
+        videoUrl: null,
+        mediaAspectRatio: null,
         userId,
         originalPostId: root.id,
       } as any,
@@ -131,6 +198,20 @@ export class PostService {
 
     if (content) {
       await this.syncPostHashtags(repost.id, content);
+    }
+
+    const mentionText = content ?? root.content ?? undefined;
+    try {
+      await this.handleMentionsForPost(repost.id, userId, mentionText);
+    } catch {
+      // Mentions are best-effort; do not break repost creation.
+    }
+
+    const mentionsKittyBot =
+      !!mentionText && /@kittybot\b/i.test(mentionText);
+    if (mentionsKittyBot) {
+      // Fire and forget; errors are handled inside
+      void this.handleKittyBotReplyForPost(repost.id, mentionText!);
     }
 
     return repost;
@@ -166,21 +247,11 @@ export class PostService {
         include: {
           user: true,
           likes: true,
+          views: true,
           comments: true,
           reposts: true,
           originalPost: {
-            include: {
-              user: true,
-              poll: {
-                include: {
-                  options: {
-                    include: {
-                      votes: true,
-                    },
-                  },
-                },
-              },
-            },
+            include: this.originalPostInclude(),
           },
           poll: {
             include: {
@@ -204,6 +275,9 @@ export class PostService {
     ]);
 
     const data = posts.map((post) => this.formatPost(post, currentUserId));
+    if (currentUserId) {
+      await this.attachIsSavedToPosts(currentUserId, data);
+    }
 
     return {
       data,
@@ -261,21 +335,11 @@ export class PostService {
         include: {
           user: true,
           likes: true,
+          views: true,
           comments: true,
           reposts: true,
           originalPost: {
-            include: {
-              user: true,
-              poll: {
-                include: {
-                  options: {
-                    include: {
-                      votes: true,
-                    },
-                  },
-                },
-              },
-            },
+            include: this.originalPostInclude(),
           },
           poll: {
             include: {
@@ -297,6 +361,7 @@ export class PostService {
     ]);
 
     const data = posts.map((post) => this.formatPost(post, userId));
+    await this.attachIsSavedToPosts(userId, data);
 
     return {
       data,
@@ -308,27 +373,28 @@ export class PostService {
   }
 
   async findByUser(username: string, currentUserId?: string) {
+    const profileUser = await (this.prisma as any).user.findFirst({
+      where: {
+        OR: [{ username }, { id: username }],
+      },
+      select: { id: true },
+    });
+
+    if (!profileUser) {
+      return [];
+    }
+
     const posts = await (this.prisma as any).post.findMany({
-      where: { user: { username } },
+      where: { userId: profileUser.id },
       orderBy: { createdAt: 'desc' },
       include: {
         user: true,
         likes: true,
+        views: true,
         comments: true,
         reposts: true,
         originalPost: {
-          include: {
-            user: true,
-            poll: {
-              include: {
-                options: {
-                  include: {
-                    votes: true,
-                  },
-                },
-              },
-            },
-          },
+          include: this.originalPostInclude(),
         },
         poll: {
           include: {
@@ -347,30 +413,102 @@ export class PostService {
       },
     });
 
-    return posts.map((post) => this.formatPost(post, currentUserId));
+    const formatted = posts.map((post) => this.formatPost(post, currentUserId));
+    if (currentUserId) {
+      await this.attachIsSavedToPosts(currentUserId, formatted);
+    }
+    return formatted;
   }
 
-  async findOne(id: string) {
+  async findByMentions(username: string, currentUserId?: string) {
+    const mentionHandle = `@${username.toLowerCase()}`;
+
+    const whereCondition: any = {
+      OR: [
+        {
+          content: {
+            contains: mentionHandle,
+            mode: 'insensitive',
+          },
+        },
+        {
+          // Reposts may not have their own `content` set; match against the original post too.
+          originalPost: {
+            content: {
+              contains: mentionHandle,
+              mode: 'insensitive',
+            },
+          },
+        },
+      ],
+    };
+
+    if (currentUserId != null) {
+      whereCondition.user = {
+        blockedBy: {
+          none: {
+            blockerId: currentUserId,
+          },
+        },
+        blockedUsers: {
+          none: {
+            blockedId: currentUserId,
+          },
+        },
+      };
+    }
+
+    const posts = await (this.prisma as any).post.findMany({
+      where: whereCondition,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        user: true,
+        likes: true,
+        views: true,
+        comments: true,
+        reposts: true,
+        originalPost: {
+          include: this.originalPostInclude(),
+        },
+        poll: {
+          include: {
+            options: {
+              include: {
+                votes: true,
+              },
+            },
+          },
+        },
+        hashtags: {
+          include: {
+            hashtag: true,
+          },
+        },
+      },
+    });
+
+    const formatted = posts.map((post: any) =>
+      this.formatPost(post, currentUserId),
+    );
+
+    if (currentUserId) {
+      await this.attachIsSavedToPosts(currentUserId, formatted);
+    }
+
+    return formatted;
+  }
+
+  async findOne(id: string, currentUserId?: string) {
     const post = await (this.prisma as any).post.findUnique({
       where: { id },
       include: {
         user: true,
         likes: true,
+        views: true,
         comments: true,
         reposts: true,
         originalPost: {
-          include: {
-            user: true,
-            poll: {
-              include: {
-                options: {
-                  include: {
-                    votes: true,
-                  },
-                },
-              },
-            },
-          },
+          include: this.originalPostInclude(),
         },
         poll: {
           include: {
@@ -393,12 +531,27 @@ export class PostService {
       throw new NotFoundException('Post not found');
     }
 
-    return this.formatPost(post);
+    const formatted = this.formatPost(post, currentUserId);
+    if (currentUserId) {
+      await this.attachIsSavedToPosts(currentUserId, [formatted]);
+    }
+    return formatted;
   }
 
   async voteOnPoll(postId: string, userId: string, optionId: string) {
-    const post = await (this.prisma as any).post.findUnique({
+    const shell = await (this.prisma as any).post.findUnique({
       where: { id: postId },
+      select: { originalPostId: true },
+    });
+
+    if (!shell) {
+      throw new NotFoundException('Post not found');
+    }
+
+    const effectivePostId = shell.originalPostId ?? postId;
+
+    const post = await (this.prisma as any).post.findUnique({
+      where: { id: effectivePostId },
       include: {
         poll: {
           include: {
@@ -431,7 +584,7 @@ export class PostService {
 
     if (existingVote) {
       if (existingVote.optionId === optionId) {
-        return this.findOne(postId);
+        return this.findOne(postId, userId);
       }
 
       await (this.prisma as any).pollVote.update({
@@ -448,7 +601,49 @@ export class PostService {
       });
     }
 
-    return this.findOne(postId);
+    return this.findOne(postId, userId);
+  }
+
+  async recordView(requestedPostId: string, userId: string) {
+    const post = await (this.prisma as any).post.findUnique({
+      where: { id: requestedPostId },
+      select: {
+        id: true,
+        userId: true,
+        originalPostId: true,
+        videoUrl: true,
+        originalPost: {
+          select: { id: true, videoUrl: true, userId: true },
+        },
+      },
+    });
+
+    if (!post) {
+      throw new NotFoundException('Post not found');
+    }
+
+    const videoUrl = post.videoUrl ?? post.originalPost?.videoUrl;
+    const contentAuthorId = post.originalPost?.userId ?? post.userId;
+    /** Repost shells have no media; count views on the original post. */
+    const viewTargetPostId =
+      post.originalPostId && post.originalPost?.id
+        ? post.originalPost.id
+        : post.id;
+
+    // Count only reel/video views and avoid inflating with self-views.
+    if (!videoUrl || contentAuthorId === userId) {
+      return { recorded: false };
+    }
+
+    const result = await (this.prisma as any).postView.createMany({
+      data: {
+        userId,
+        postId: viewTargetPostId,
+      },
+      skipDuplicates: true,
+    });
+
+    return { recorded: result.count > 0 };
   }
 
   async remove(id: string, userId: string) {
@@ -460,9 +655,61 @@ export class PostService {
       throw new BadRequestException('Not allowed to delete this post');
     }
 
+    const mediaUrls: string[] = [];
+
+    if (post.imageUrl) {
+      if (typeof post.imageUrl === 'string' && post.imageUrl.trim().startsWith('[')) {
+        try {
+          const parsed = JSON.parse(post.imageUrl);
+          if (Array.isArray(parsed)) {
+            for (const u of parsed) {
+              if (typeof u === 'string' && u) {
+                mediaUrls.push(u);
+              }
+            }
+          }
+        } catch {
+          mediaUrls.push(post.imageUrl);
+        }
+      } else if (typeof post.imageUrl === 'string') {
+        mediaUrls.push(post.imageUrl);
+      }
+    }
+
+    if (post.gifUrl) {
+      mediaUrls.push(post.gifUrl);
+    }
+
+    if (post.videoUrl) {
+      mediaUrls.push(post.videoUrl);
+    }
+    const uniqueUrls = [...new Set(mediaUrls)];
+
+    const urlsSafeToDeleteFromStorage: string[] = [];
+    for (const url of uniqueUrls) {
+      if (!parseFirebaseStorageDownloadUrl(url)) {
+        continue;
+      }
+      const otherRefs = await (this.prisma as any).post.count({
+        where: {
+          id: { not: id },
+          OR: [{ imageUrl: url }, { gifUrl: url }, { videoUrl: url }],
+        },
+      });
+      if (otherRefs === 0) {
+        urlsSafeToDeleteFromStorage.push(url);
+      }
+    }
+
     await (this.prisma as any).post.delete({
       where: { id },
     });
+
+    await Promise.all(
+      urlsSafeToDeleteFromStorage.map((url) =>
+        this.firebaseService.deleteStorageObjectByDownloadUrl(url),
+      ),
+    );
 
     return { deleted: true };
   }
@@ -510,21 +757,11 @@ export class PostService {
         include: {
           user: true,
           likes: true,
+          views: true,
           comments: true,
           reposts: true,
           originalPost: {
-            include: {
-              user: true,
-              poll: {
-                include: {
-                  options: {
-                    include: {
-                      votes: true,
-                    },
-                  },
-                },
-              },
-            },
+            include: this.originalPostInclude(),
           },
           poll: {
             include: {
@@ -546,6 +783,9 @@ export class PostService {
     ]);
 
     const data = posts.map((post) => this.formatPost(post, currentUserId));
+    if (currentUserId) {
+      await this.attachIsSavedToPosts(currentUserId, data);
+    }
 
     return {
       data,
@@ -617,6 +857,121 @@ export class PostService {
     const matches = text.match(/#([\p{L}\p{N}_]+)\b/gu);
     if (!matches) return [];
     return matches.map((tag) => tag.replace(/^#/, ''));
+  }
+
+  private extractMentions(text: string | undefined): string[] {
+    if (!text) return [];
+    const matches = Array.from(
+      text.matchAll(/@([\p{L}\p{N}_]+)\b/gu),
+      (m) => m[1],
+    );
+    if (matches.length === 0) return [];
+    return matches;
+  }
+
+  private async handleMentionsForPost(
+    postId: string,
+    actorId: string,
+    contentText?: string,
+  ) {
+    if (!contentText) return;
+
+    const mentionHandles = this.extractMentions(contentText)
+      .map((h) => h.toLowerCase())
+      .filter(Boolean);
+    const uniqueHandles = Array.from(new Set(mentionHandles));
+    if (uniqueHandles.length === 0) return;
+
+    // Ensure KittyBot user exists so notifications can be created consistently.
+    const mentionsKittyBot = uniqueHandles.includes('kittybot');
+    if (mentionsKittyBot) {
+      await (this.prisma as any).user.upsert({
+        where: { id: 'kitty-bot' },
+        update: {},
+        create: {
+          id: 'kitty-bot',
+          email: 'kitty-bot@example.local',
+          username: 'KittyBot',
+          displayName: 'Kitty Bot',
+        },
+      });
+    }
+
+    const actor = await (this.prisma as any).user.findUnique({
+      where: { id: actorId },
+      select: { username: true, displayName: true },
+    });
+    const actorName = actor?.displayName || actor?.username || 'Someone';
+
+    // Resolve mention handles to actual users.
+    const mentionedUsers = await (this.prisma as any).user.findMany({
+      where: {
+        OR: uniqueHandles.map((handle: string) => ({
+          username: { equals: handle, mode: 'insensitive' },
+        })),
+      },
+      select: { id: true, username: true, displayName: true, fcmToken: true },
+    });
+
+    const receivers = mentionedUsers.filter((u: any) => u.id !== actorId);
+    if (receivers.length === 0) return;
+
+    const receiverIds = receivers.map((u: any) => u.id);
+
+    // Respect blocks (match the same rules used when filtering feed/profile results).
+    const blocks = await (this.prisma as any).block.findMany({
+      where: {
+        OR: [
+          { blockerId: actorId, blockedId: { in: receiverIds } },
+          { blockerId: { in: receiverIds }, blockedId: actorId },
+        ],
+      },
+      select: { blockerId: true, blockedId: true },
+    });
+
+    const blockedReceiverIds = new Set<string>();
+    for (const b of blocks) {
+      const receiverId = b.blockerId === actorId ? b.blockedId : b.blockerId;
+      blockedReceiverIds.add(receiverId);
+    }
+
+    const href = '/(tabs)/profile?tab=mentions';
+    const notificationMessage = `${actorName} mentioned you in a post.`;
+
+    await Promise.all(
+      receivers
+        .filter((u: any) => !blockedReceiverIds.has(u.id))
+        .map(async (receiver: any) => {
+          const notification = await (this.prisma as any).notification.create({
+            data: {
+              userId: receiver.id,
+              // Store the actor + post so clients can deep-link from the notification.
+              actorId,
+              type: 'mention',
+              message: notificationMessage,
+              postId,
+            },
+          });
+
+          this.notifications.broadcastInAppNotification(
+            notification.userId,
+            notification,
+          );
+
+          await this.notifications.sendPushNotification(
+            receiver.fcmToken,
+            'New mention',
+            notificationMessage,
+            {
+              data: {
+                type: 'mention',
+                href,
+                postId,
+              },
+            },
+          );
+        }),
+    );
   }
 
   private async handleKittyBotReplyForPost(postId: string, userText: string) {
@@ -769,21 +1124,11 @@ export class PostService {
           include: {
             user: true,
             likes: true,
+            views: true,
             comments: true,
             reposts: true,
             originalPost: {
-              include: {
-                user: true,
-                poll: {
-                  include: {
-                    options: {
-                      include: {
-                        votes: true,
-                      },
-                    },
-                  },
-                },
-              },
+              include: this.originalPostInclude(),
             },
             poll: {
               include: {
@@ -829,21 +1174,11 @@ export class PostService {
           include: {
             user: true,
             likes: true,
+            views: true,
             comments: true,
             reposts: true,
             originalPost: {
-              include: {
-                user: true,
-                poll: {
-                  include: {
-                    options: {
-                      include: {
-                        votes: true,
-                      },
-                    },
-                  },
-                },
-              },
+              include: this.originalPostInclude(),
             },
             poll: {
               include: {
@@ -880,21 +1215,11 @@ export class PostService {
           include: {
             user: true,
             likes: true,
+            views: true,
             comments: true,
             reposts: true,
             originalPost: {
-              include: {
-                user: true,
-                poll: {
-                  include: {
-                    options: {
-                      include: {
-                        votes: true,
-                      },
-                    },
-                  },
-                },
-              },
+              include: this.originalPostInclude(),
             },
             poll: {
               include: {
@@ -927,21 +1252,11 @@ export class PostService {
           include: {
             user: true,
             likes: true,
+            views: true,
             comments: true,
             reposts: true,
             originalPost: {
-              include: {
-                user: true,
-                poll: {
-                  include: {
-                    options: {
-                      include: {
-                        votes: true,
-                      },
-                    },
-                  },
-                },
-              },
+              include: this.originalPostInclude(),
             },
             poll: {
               include: {
@@ -1049,6 +1364,7 @@ export class PostService {
     }
 
     const data = combinedPicked.map((post) => this.formatPost(post, userId));
+    await this.attachIsSavedToPosts(userId, data);
 
     // For now we treat "total" as approximate and infer hasMore from whether we could fill this page.
     return {
@@ -1139,21 +1455,49 @@ export class PostService {
   }
 
   private formatPost(post: any, currentUserId?: string) {
+    const decodeImageUrls = (raw: any): string[] | null => {
+      if (!raw || typeof raw !== 'string') return null;
+      const trimmed = raw.trim();
+      if (!trimmed) return null;
+      if (trimmed.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) {
+            const urls = parsed.filter(
+              (u) => typeof u === 'string' && u.trim().length > 0,
+            );
+            return urls.length ? urls : null;
+          }
+          return null;
+        } catch {
+          return null;
+        }
+      }
+      return [trimmed];
+    };
+
+    const imageUrls = decodeImageUrls(post.imageUrl);
+    const originalImageUrls = decodeImageUrls(post.originalPost?.imageUrl);
+
+    const root = post.originalPost;
+    /** Whether the current user has reposted the underlying content (tracked on the root post). */
+    const repostEngagementSource = root ?? post;
+
     const isReposted =
       !!currentUserId &&
-      ((post.userId === currentUserId && !!post.originalPostId) ||
-        post.reposts?.some((r: any) => r.userId === currentUserId));
+      (repostEngagementSource.reposts?.some((r: any) => r.userId === currentUserId) ||
+        (post.userId === currentUserId && !!post.originalPostId));
 
-    const reposterId = post.originalPost ? post.user?.id : undefined;
-    const reposterUsername = post.originalPost
-      ? post.user?.username
-      : undefined;
+    const reposterId = root ? post.user?.id : undefined;
+    const reposterUsername = root ? post.user?.username : undefined;
 
     return {
       id: post.id,
       content: post.content,
-      imageUrl: post.imageUrl,
+      imageUrl: imageUrls,
       gifUrl: post.gifUrl,
+      videoUrl: post.videoUrl,
+      mediaAspectRatio: post.mediaAspectRatio,
       createdAt: post.createdAt,
 
       authorId: post.user?.id,
@@ -1162,11 +1506,12 @@ export class PostService {
       avatarUrl: post.user?.avatarUrl,
 
       likesCount: post.likes?.length ?? 0,
+      viewsCount: post.views?.length ?? 0,
       repliesCount: post.comments?.length ?? 0,
       repostsCount: post.reposts?.length ?? 0,
 
       isLiked: currentUserId
-        ? post.likes?.some((l) => l.userId === currentUserId)
+        ? post.likes?.some((l: any) => l.userId === currentUserId)
         : false,
       isReposted,
 
@@ -1177,8 +1522,10 @@ export class PostService {
       originalAuthorId: post.originalPost?.user?.id,
       originalAuthorUsername: post.originalPost?.user?.username,
       originalPostContent: post.originalPost?.content,
-      originalPostImageUrl: post.originalPost?.imageUrl,
+      originalPostImageUrl: originalImageUrls?.[0] ?? null,
       originalPostGifUrl: post.originalPost?.gifUrl,
+      originalPostVideoUrl: post.originalPost?.videoUrl,
+      originalPostMediaAspectRatio: post.originalPost?.mediaAspectRatio,
       originalPostPoll: this.formatPoll(post.originalPost?.poll, currentUserId),
       hashtags:
         post.hashtags
@@ -1186,5 +1533,23 @@ export class PostService {
           .filter(Boolean) ?? [],
       poll: this.formatPoll(post.poll, currentUserId),
     };
+  }
+
+  private async attachIsSavedToPosts(
+    userId: string,
+    posts: { id: string }[],
+  ): Promise<void> {
+    if (!posts.length) return;
+    const ids = posts.map((p) => p.id);
+    const rows = await (this.prisma as any).savedPost.findMany({
+      where: { userId, postId: { in: ids } },
+      select: { postId: true },
+    });
+    const savedIds = new Set(
+      rows.map((r: { postId: string }) => r.postId),
+    );
+    for (const p of posts) {
+      (p as { isSaved?: boolean }).isSaved = savedIds.has(p.id);
+    }
   }
 }

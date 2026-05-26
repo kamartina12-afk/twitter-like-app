@@ -5,12 +5,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import SearchBar from '@/components/SearchBar/SearchBar';
 import { useAuth } from '@/contexts/AuthContext';
-import type { ExploreHistoryItem } from './types';
+import type { ExploreHistoryItem, ExploreUserHistoryItem } from './types';
 import type { SearchResult } from '@/components/SearchBar/types';
 import { searchHistoryServices } from '@/services/searchHistoryServices';
 
 export default function ExploreTab() {
-  const [history, setHistory] = useState<ExploreHistoryItem[]>([]);
+  const [history, setHistory] = useState<ExploreUserHistoryItem[]>([]);
   const router = useRouter();
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -28,16 +28,21 @@ export default function ExploreTab() {
   });
 
   useEffect(() => {
-    if (serverHistory.length) {
-      setHistory(serverHistory);
+    const usersOnly = serverHistory.filter(
+      (item): item is ExploreUserHistoryItem => item.type === 'user',
+    );
+    if (usersOnly.length) {
+      setHistory(usersOnly);
     }
   }, [serverHistory]);
 
   const updateHistory = (selectedUser: SearchResult) => {
     setHistory((prev) => {
       const existing = prev.filter((u) => u.id !== selectedUser.id);
-      const withHistoryId: ExploreHistoryItem = {
+      const withHistoryId: ExploreUserHistoryItem = {
         ...selectedUser,
+        type: 'user',
+        query: selectedUser.username,
         historyId: crypto.randomUUID(),
       };
       return [withHistoryId, ...existing].slice(0, 25);
@@ -45,9 +50,11 @@ export default function ExploreTab() {
 
     queryClient.setQueryData<ExploreHistoryItem[] | undefined>(['searchHistory'], (prev) => {
       const list = prev ?? [];
-      const existing = list.filter((u) => u.id !== selectedUser.id);
-      const withHistoryId: ExploreHistoryItem = {
+      const existing = list.filter((u) => u.type !== 'user' || u.id !== selectedUser.id);
+      const withHistoryId: ExploreUserHistoryItem = {
         ...selectedUser,
+        type: 'user',
+        query: selectedUser.username,
         historyId: crypto.randomUUID(),
       };
       return [withHistoryId, ...existing].slice(0, 25);

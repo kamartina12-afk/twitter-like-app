@@ -48,36 +48,61 @@ export class SearchHistoryService {
       }
     >(users.map((u: any) => [u.id, u]));
 
-    // Return data shaped for the Explore tab: search results + history id
     return items
       .map((item: any) => {
-        if (item.type !== 'user' || !item.targetId) {
-          return null;
+        if (item.type === 'user') {
+          if (!item.targetId) {
+            return null;
+          }
+          const user = userMap.get(item.targetId);
+          if (!user) {
+            return null;
+          }
+          return {
+            type: 'user' as const,
+            historyId: item.id,
+            query: item.query,
+            id: user.id,
+            username: user.username,
+            displayName: user.displayName ?? undefined,
+            avatarUrl: user.avatarUrl ?? undefined,
+          };
         }
 
-        const user = userMap.get(item.targetId);
-        if (!user) {
-          return null;
+        if (item.type === 'hashtag') {
+          return {
+            type: 'hashtag' as const,
+            historyId: item.id,
+            query: item.query,
+          };
         }
 
-        return {
-          historyId: item.id,
-          id: user.id,
-          username: user.username,
-          displayName: user.displayName ?? undefined,
-          avatarUrl: user.avatarUrl ?? undefined,
-        };
+        if (item.type === 'post' && item.targetId) {
+          return {
+            type: 'post' as const,
+            historyId: item.id,
+            query: item.query,
+            targetId: item.targetId,
+          };
+        }
+
+        return null;
       })
       .filter(
         (
           item,
-        ): item is {
-          historyId: string;
-          id: string;
-          username: string;
-          displayName?: string;
-          avatarUrl?: string | null;
-        } => !!item,
+        ): item is
+          | {
+              type: 'user';
+              historyId: string;
+              query: string;
+              id: string;
+              username: string;
+              displayName?: string;
+              avatarUrl?: string | null;
+            }
+          | { type: 'hashtag'; historyId: string; query: string }
+          | { type: 'post'; historyId: string; query: string; targetId: string } => !!item,
       );
   }
 
@@ -85,12 +110,14 @@ export class SearchHistoryService {
     const { userId, query, targetId, type } = input;
 
     // Ensure we only keep a single entry per (userId, type, targetId) pair
+    const dedupeWhere: any = {
+      userId,
+      type,
+      targetId: targetId == null ? null : targetId,
+    };
+
     await (this.prisma as any).searchHistory.deleteMany({
-      where: {
-        userId,
-        type,
-        targetId: targetId ?? undefined,
-      },
+      where: dedupeWhere,
     });
 
     const created = await (this.prisma as any).searchHistory.create({

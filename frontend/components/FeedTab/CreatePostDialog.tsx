@@ -45,6 +45,7 @@ export function CreatePostDialog({ open, onClose, initialContent }: CreatePostDi
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [dialogImageUrl, setDialogImageUrl] = useState<string | undefined>(undefined);
   const [dialogGifUrl, setDialogGifUrl] = useState<string | undefined>(undefined);
+  const [dialogVideoUrl, setDialogVideoUrl] = useState<string | undefined>(undefined);
   const [isPollEnabled, setIsPollEnabled] = useState(false);
   const [isGifPickerOpen, setIsGifPickerOpen] = useState(false);
   const [gifSearchTerm, setGifSearchTerm] = useState('');
@@ -82,6 +83,7 @@ export function CreatePostDialog({ open, onClose, initialContent }: CreatePostDi
     if (!open) {
       setDialogImageUrl(undefined);
       setDialogGifUrl(undefined);
+      setDialogVideoUrl(undefined);
     }
   }, [open]);
 
@@ -124,6 +126,7 @@ export function CreatePostDialog({ open, onClose, initialContent }: CreatePostDi
         data.content,
         dialogImageUrl || undefined,
         dialogGifUrl || undefined,
+        dialogVideoUrl || undefined,
         pollPayload,
       );
     },
@@ -132,6 +135,7 @@ export function CreatePostDialog({ open, onClose, initialContent }: CreatePostDi
       reset({ content: '' });
       setDialogImageUrl(undefined);
       setDialogGifUrl(undefined);
+      setDialogVideoUrl(undefined);
       setIsPollEnabled(false);
       onClose();
     },
@@ -144,7 +148,8 @@ export function CreatePostDialog({ open, onClose, initialContent }: CreatePostDi
         data.pollOption2?.trim() ||
         data.pollOption3?.trim() ||
         data.pollOption4?.trim());
-    const hasContent = data.content.trim() || dialogImageUrl || dialogGifUrl || hasPoll;
+    const hasContent =
+      data.content.trim() || dialogImageUrl || dialogGifUrl || dialogVideoUrl || hasPoll;
     if (!hasContent) return;
     createPostMutation.mutate(data);
   };
@@ -154,10 +159,17 @@ export function CreatePostDialog({ open, onClose, initialContent }: CreatePostDi
     if (file) {
       try {
         const dataUrl = await readFileAsDataURL(file);
-        setDialogImageUrl(dataUrl);
+        if (file.type.startsWith('video/')) {
+          setDialogVideoUrl(dataUrl);
+          setDialogImageUrl(undefined);
+          setDialogGifUrl(undefined);
+        } else {
+          setDialogImageUrl(dataUrl);
+          setDialogVideoUrl(undefined);
+          setDialogGifUrl(undefined);
+        }
       } catch (error) {
-        // Fallback message
-        alert(feedLabels.selectImageFile);
+        alert('Please select a valid image or video file');
       }
     }
   };
@@ -403,12 +415,51 @@ export function CreatePostDialog({ open, onClose, initialContent }: CreatePostDi
               </button>
             </div>
           )}
+          {dialogVideoUrl && (
+            <div style={{ position: 'relative', margin: '10px 0' }}>
+              <video
+                src={dialogVideoUrl}
+                controls
+                playsInline
+                preload="metadata"
+                style={{
+                  maxWidth: '100%',
+                  maxHeight: '300px',
+                  borderRadius: '12px',
+                  objectFit: 'contain',
+                  backgroundColor: 'rgb(var(--card))',
+                  display: 'block',
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setDialogVideoUrl(undefined)}
+                style={{
+                  position: 'absolute',
+                  top: '8px',
+                  right: '8px',
+                  background: 'rgba(0, 0, 0, 0.6)',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '32px',
+                  height: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  color: 'white',
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+          )}
 
           <PostButtonContainer>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <input
                 type="file"
-                accept="image/*"
+                accept="image/*,video/*"
                 onChange={handleFileSelect}
                 style={{ display: 'none' }}
                 ref={fileInputRef}

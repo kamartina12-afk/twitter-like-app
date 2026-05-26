@@ -78,7 +78,9 @@ function UserProfileContent({ username }: { username: string }) {
   const [commentModalPost, setCommentModalPost] = useState<Post | null>(null);
   const [repostModalPost, setRepostModalPost] = useState<Post | null>(null);
   const [deleteConfirmPost, setDeleteConfirmPost] = useState<Post | null>(null);
-  const [blockConfirmUser, setBlockConfirmUser] = useState<{ id: string; username: string } | null>(null);
+  const [blockConfirmUser, setBlockConfirmUser] = useState<{ id: string; username: string } | null>(
+    null,
+  );
   const [savedPostIds, setSavedPostIds] = useState<Set<string>>(new Set());
 
   const { data: profile, isLoading: profileLoading } = useQuery<UserProfile>({
@@ -144,7 +146,6 @@ function UserProfileContent({ username }: { username: string }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['userProfile', username] });
-      queryClient.invalidateQueries({ queryKey: ['feed'] });
     },
   });
 
@@ -204,20 +205,16 @@ function UserProfileContent({ username }: { username: string }) {
       postId,
       isReposted,
       content,
-      imageUrl,
-      gifUrl,
     }: {
       postId: string;
       isReposted: boolean;
       content?: string;
-      imageUrl?: string;
-      gifUrl?: string;
     }) => {
       const token = await user?.getIdToken();
       if (!token) throw new Error('Not authenticated');
       return isReposted
         ? feedServices.unrepostPost(token, postId)
-        : feedServices.repostPost(token, postId, content, imageUrl, gifUrl);
+        : feedServices.repostPost(token, postId, content);
     },
     onSettled: invalidateUserPosts,
   });

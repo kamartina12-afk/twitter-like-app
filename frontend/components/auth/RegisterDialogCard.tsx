@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 import { useAuth } from '@/contexts/AuthContext';
@@ -28,6 +27,7 @@ import { RegisterFormData, RegisterDialogCardProps, countryCodes } from './types
 
 export function RegisterDialogCard({ onSuccess }: RegisterDialogCardProps) {
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [step, setStep] = useState<1 | 2>(1);
   const [phonePrefix, setPhonePrefix] = useState('+389');
   const {
@@ -39,10 +39,10 @@ export function RegisterDialogCard({ onSuccess }: RegisterDialogCardProps) {
   } = useForm<RegisterFormData>();
 
   const { register: registerUser } = useAuth();
-  const router = useRouter();
 
   const onSubmit = async (data: RegisterFormData) => {
     setError('');
+    setNotice('');
 
     if (!data.birthDate) {
       setError('Please enter your date of birth');
@@ -97,7 +97,7 @@ export function RegisterDialogCard({ onSuccess }: RegisterDialogCardProps) {
     try {
       await registerUser(email, data.password, data.username, data.birthDate);
       onSuccess?.();
-      router.push('/home');
+      setNotice('Verification email sent. Check your inbox to confirm your address—you stay signed in.');
     } catch (err: any) {
       setError(err.message || 'Failed to create account. Please try again.');
     }
@@ -111,6 +111,11 @@ export function RegisterDialogCard({ onSuccess }: RegisterDialogCardProps) {
         {error && (
           <p className="mt-2 rounded-xl border border-destructive/50 bg-destructive/10 px-4 py-2 text-sm text-destructive">
             {error}
+          </p>
+        )}
+        {notice && (
+          <p className="mt-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-600 dark:text-emerald-400">
+            {notice}
           </p>
         )}
       </CardHeader>

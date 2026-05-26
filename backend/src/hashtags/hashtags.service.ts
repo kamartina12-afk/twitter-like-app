@@ -6,14 +6,19 @@ export class HashtagsService {
   constructor(private prisma: PrismaService) {}
 
   async search(query: string) {
+    const trimmed = (query ?? '').trim().toLowerCase();
+    if (!trimmed) {
+      return [];
+    }
+
     return (this.prisma as any).hashtag.findMany({
       where: {
         name: {
-          startsWith: query.toLowerCase(),
+          startsWith: trimmed,
           mode: 'insensitive',
         },
       },
-      take: 5,
+      take: 8,
       orderBy: {
         name: 'asc',
       },

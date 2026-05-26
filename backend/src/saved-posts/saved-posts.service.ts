@@ -121,9 +121,18 @@ export class SavedPostsService {
           include: {
             user: true,
             likes: true,
+            views: true,
             comments: true,
             reposts: true,
-            originalPost: { include: { user: true } },
+            originalPost: {
+              include: {
+                user: true,
+                likes: true,
+                views: true,
+                comments: true,
+                reposts: true,
+              },
+            },
           },
         },
         collection: true,
@@ -153,6 +162,7 @@ export class SavedPostsService {
 
     return Array.from(byPostId.values()).map(({ post, collectionNames, inUnsorted }) => ({
       ...this.formatPost(post, userId),
+      isSaved: true,
       collectionName: collectionNames[0] ?? null,
       collectionNames,
       inUnsorted,
@@ -172,9 +182,18 @@ export class SavedPostsService {
               include: {
                 user: true,
                 likes: true,
+                views: true,
                 comments: true,
                 reposts: true,
-                originalPost: { include: { user: true } },
+                originalPost: {
+              include: {
+                user: true,
+                likes: true,
+                views: true,
+                comments: true,
+                reposts: true,
+              },
+            },
               },
             },
           },
@@ -235,21 +254,24 @@ export class SavedPostsService {
   }
 
   private formatPost(post: any, currentUserId?: string) {
+    const root = post.originalPost;
+    const repostEngagementSource = root ?? post;
+
     const isReposted =
       !!currentUserId &&
-      ((post.userId === currentUserId && !!post.originalPostId) ||
-        post.reposts?.some((r: any) => r.userId === currentUserId));
+      (repostEngagementSource.reposts?.some((r: any) => r.userId === currentUserId) ||
+        (post.userId === currentUserId && !!post.originalPostId));
 
-    const reposterId = post.originalPost ? post.user?.id : undefined;
-    const reposterUsername = post.originalPost
-      ? post.user?.username
-      : undefined;
+    const reposterId = root ? post.user?.id : undefined;
+    const reposterUsername = root ? post.user?.username : undefined;
 
     return {
       id: post.id,
       content: post.content,
       imageUrl: post.imageUrl,
       gifUrl: post.gifUrl,
+      videoUrl: post.videoUrl,
+      mediaAspectRatio: post.mediaAspectRatio,
       createdAt: post.createdAt,
 
       authorId: post.user?.id,
@@ -258,6 +280,7 @@ export class SavedPostsService {
       avatarUrl: post.user?.avatarUrl,
 
       likesCount: post.likes?.length ?? 0,
+      viewsCount: post.views?.length ?? 0,
       repliesCount: post.comments?.length ?? 0,
       repostsCount: post.reposts?.length ?? 0,
 
@@ -275,6 +298,8 @@ export class SavedPostsService {
       originalPostContent: post.originalPost?.content,
       originalPostImageUrl: post.originalPost?.imageUrl,
       originalPostGifUrl: post.originalPost?.gifUrl,
+      originalPostVideoUrl: post.originalPost?.videoUrl,
+      originalPostMediaAspectRatio: post.originalPost?.mediaAspectRatio,
     };
   }
 }

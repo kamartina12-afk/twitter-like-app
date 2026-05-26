@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notification.service';
 
@@ -10,9 +10,17 @@ export class LikeService {
   ) {}
 
   async likePost(userId: string, postId: string) {
-    const existing = await this.prisma.like.findUnique({
+    const post = await this.prisma.post.findUnique({
+      where: { id: postId },
+    });
+    if (!post) {
+      throw new NotFoundException('Post not found');
+    }
+
+    const existing = await this.prisma.like.findFirst({
       where: {
-        userId_postId: { userId, postId },
+        userId,
+        postId,
       },
     });
 
@@ -29,14 +37,14 @@ export class LikeService {
 
     // Create a notification for the post author (if not liking own post)
     try {
-      const post = await this.prisma.post.findUnique({
+      const postRow = await this.prisma.post.findUnique({
         where: { id: postId },
         select: {
           userId: true,
         },
       });
 
-      if (post && post.userId !== userId) {
+      if (postRow && postRow.userId !== userId) {
         const liker = await this.prisma.user.findUnique({
           where: { id: userId },
           select: {
@@ -51,9 +59,10 @@ export class LikeService {
 
         const notification = await (this.prisma as any).notification.create({
           data: {
-            userId: post.userId,
+            userId: postRow.userId,
             type: 'like',
             message: notificationMessage,
+            postId,
           },
         });
 
@@ -65,7 +74,7 @@ export class LikeService {
         const targetUser: { fcmToken: string | null } | null = await (
           this.prisma as any
         ).user.findUnique({
-          where: { id: post.userId },
+          where: { id: postRow.userId },
           select: { fcmToken: true },
         });
 
@@ -73,6 +82,13 @@ export class LikeService {
           targetUser?.fcmToken,
           'New like',
           notificationMessage,
+          {
+            data: {
+              type: 'like',
+              href: `/post/${postId}`,
+              postId,
+            },
+          },
         );
       }
     } catch {
@@ -83,14 +99,21 @@ export class LikeService {
   }
 
   async unlikePost(userId: string, postId: string) {
-    await this.prisma.like
-      .delete({
-        where: {
-          userId_postId: { userId, postId },
-        },
-      })
-      .catch(() => null);
+    const shell = await this.prisma.post.findUnique({
+      where: { id: postId },
+      select: { id: true },
+    });
+    if (!shell) {
+      return { unliked: false };
+    }
 
-    return { unliked: true };
+    const result = await this.prisma.like.deleteMany({
+      where: {
+        userId,
+        postId,
+      },
+    });
+
+    return { unliked: result.count > 0 };
   }
 }

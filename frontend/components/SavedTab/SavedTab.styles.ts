@@ -61,8 +61,7 @@ export const CollectionFilterButton = styled.button<{ $active?: boolean }>`
   border-radius: 999px;
   border: ${({ $active }) =>
     $active ? '2px solid var(--primary-color, #1d9bf0)' : '1px solid rgb(var(--border))'};
-  background: ${({ $active }) =>
-    $active ? 'rgba(29, 155, 240, 0.08)' : 'rgb(var(--background))'};
+  background: ${({ $active }) => ($active ? 'rgba(29, 155, 240, 0.08)' : 'rgb(var(--background))')};
   cursor: pointer;
   font-size: 0.75rem;
   text-align: left;
@@ -76,8 +75,7 @@ export const CollectionItemButton = styled.button<{ $active?: boolean }>`
   border-radius: 12px;
   border: ${({ $active }) =>
     $active ? '2px solid var(--primary-color, #1d9bf0)' : '1px solid rgb(var(--border))'};
-  background: ${({ $active }) =>
-    $active ? 'rgba(29, 155, 240, 0.08)' : 'rgb(var(--background))'};
+  background: ${({ $active }) => ($active ? 'rgba(29, 155, 240, 0.08)' : 'rgb(var(--background))')};
   cursor: pointer;
 `;
 
@@ -162,7 +160,9 @@ export const SavedPostCard = styled.div<{ $hasMedia?: boolean }>`
   display: flex;
   flex-direction: column;
   box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
   ${({ $hasMedia }) => (!$hasMedia ? 'min-height: 120px;' : '')}
 `;
 

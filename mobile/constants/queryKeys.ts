@@ -1,0 +1,21 @@
+export const QUERY_KEYS = {
+  POSTS: ['posts'],
+  /** Prefix: invalidates all home feeds (for_you + following). */
+  FEED: ['feed'] as const,
+  FEED_FOR_YOU: ['feed', 'for_you'] as const,
+  FEED_FOLLOWING: ['feed', 'following'] as const,
+  ME_FOLLOWERS: ['followers', 'me'] as const,
+  ME_FOLLOWING: ['following', 'me'] as const,
+  NOTIFICATIONS: ['notifications'],
+  CHAT_UNREAD: ['chat', 'unread'],
+  PROFILE: ['profile'],
+  USER_POSTS: ['userPosts'],
+  USER_PROFILE: ['userProfile'],
+  USER_FOLLOWERS: ['userFollowers'],
+  USER_FOLLOWING: ['userFollowing'],
+  USER_BLOCKED: ['userBlocked'],
+  USER_BLOCKED_BY: ['userBlockedBy'],
+  EXPLORE_FEED: ['explore', 'feed'],
+  HASHTAG_POSTS: (tag: string) => ['explore', 'hashtag-posts', tag] as const,
+  SAVED_COLLECTIONS: ['saved-collections'],
+};

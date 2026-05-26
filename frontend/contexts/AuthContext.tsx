@@ -6,6 +6,9 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  sendEmailVerification,
+  GoogleAuthProvider,
+  signInWithPopup,
   User,
 } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
@@ -28,6 +31,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, username: string, birthDate: string) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -78,7 +82,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string) => {
     const credential = await signInWithEmailAndPassword(auth, email, password);
-
     const token = await credential.user.getIdToken();
     localStorage.setItem('token', token);
 
@@ -87,6 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const register = async (email: string, password: string, username: string, birthDate: string) => {
     const credential = await createUserWithEmailAndPassword(auth, email, password);
+    await sendEmailVerification(credential.user);
 
     const token = await credential.user.getIdToken();
 
@@ -100,7 +104,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     localStorage.setItem('token', token);
+    await loadProfile(credential.user);
+  };
 
+  const signInWithGoogle = async () => {
+    const provider = new GoogleAuthProvider();
+    const credential = await signInWithPopup(auth, provider);
+    const token = await credential.user.getIdToken();
+
+    await fetch(`/api/users/me`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    });
+
+    localStorage.setItem('token', token);
     await loadProfile(credential.user);
   };
 
@@ -119,6 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         login,
         register,
+        signInWithGoogle,
         logout,
         refreshProfile: async () => loadProfile(auth.currentUser),
       }}

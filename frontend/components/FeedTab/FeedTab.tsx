@@ -5,12 +5,7 @@ import { useForm } from 'react-hook-form';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
-import {
-  Image as ImageIcon,
-  X,
-  Smile,
-  BarChart2,
-} from 'lucide-react';
+import { Image as ImageIcon, X, Smile, BarChart2 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import EmojiPicker from 'emoji-picker-react';
 import {
@@ -78,7 +73,6 @@ export default function FeedTab({ activeHashtag, onHashtagSelect }: FeedTabProps
   const queryClient = useQueryClient();
   const { state, dispatch } = useComposer();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const repostFileInputRef = useRef<HTMLInputElement>(null);
   const [isGifPickerOpen, setIsGifPickerOpen] = useState(false);
   const [gifSearchTerm, setGifSearchTerm] = useState('');
   const [gifResults, setGifResults] = useState<
@@ -117,9 +111,6 @@ export default function FeedTab({ activeHashtag, onHashtagSelect }: FeedTabProps
   const [isPollEnabled, setIsPollEnabled] = useState(false);
   const [repostModalPost, setRepostModalPost] = useState<Post | null>(null);
   const [repostText, setRepostText] = useState('');
-  const [repostImageUrl, setRepostImageUrl] = useState<string | undefined>(undefined);
-  const [repostGifUrl, setRepostGifUrl] = useState<string | undefined>(undefined);
-  const [gifTarget, setGifTarget] = useState<'create' | 'repost' | null>(null);
   const pollVoteMutation = useMutation({
     mutationFn: async ({ postId, optionId }: { postId: string; optionId: string }) => {
       const token = await user?.getIdToken();
@@ -417,6 +408,7 @@ export default function FeedTab({ activeHashtag, onHashtagSelect }: FeedTabProps
         data.content,
         state.imageUrl || undefined,
         state.gifUrl || undefined,
+        state.videoUrl || undefined,
         pollPayload,
       );
     },
@@ -433,6 +425,7 @@ export default function FeedTab({ activeHashtag, onHashtagSelect }: FeedTabProps
       });
       dispatch({ type: 'SET_IMAGE_URL', imageUrl: undefined });
       dispatch({ type: 'SET_GIF_URL', gifUrl: undefined });
+      dispatch({ type: 'SET_VIDEO_URL', videoUrl: undefined });
       setGifResults([]);
       setGifSearchTerm('');
       setIsGifPickerOpen(false);
@@ -447,36 +440,6 @@ export default function FeedTab({ activeHashtag, onHashtagSelect }: FeedTabProps
       return isLiked
         ? feedServices.unlikePost(token, postId)
         : feedServices.likePost(token, postId);
-    },
-    onMutate: async ({ postId, isLiked }) => {
-      await queryClient.cancelQueries({ queryKey: ['feed', feedType] });
-      const previousData = queryClient.getQueryData(['feed', feedType]);
-
-      queryClient.setQueryData(['feed', feedType], (old: any) => {
-        if (!old) return old;
-        return {
-          ...old,
-          pages: old.pages.map((page: any) => ({
-            ...page,
-            data: page.data.map((post: Post) =>
-              post.id === postId
-                ? {
-                    ...post,
-                    isLiked: !isLiked,
-                    likesCount: isLiked ? Math.max(0, post.likesCount - 1) : post.likesCount + 1,
-                  }
-                : post,
-            ),
-          })),
-        };
-      });
-
-      return { previousData };
-    },
-    onError: (err, variables, context: any) => {
-      if (context?.previousData) {
-        queryClient.setQueryData(['feed', feedType], context.previousData);
-      }
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['feed'] });
@@ -501,20 +464,16 @@ export default function FeedTab({ activeHashtag, onHashtagSelect }: FeedTabProps
       postId,
       isReposted,
       content,
-      imageUrl,
-      gifUrl,
     }: {
       postId: string;
       isReposted: boolean;
       content?: string;
-      imageUrl?: string;
-      gifUrl?: string;
     }) => {
       const token = await user?.getIdToken();
       if (!token) throw new Error('Not authenticated');
       return isReposted
         ? feedServices.unrepostPost(token, postId)
-        : feedServices.repostPost(token, postId, content, imageUrl, gifUrl);
+        : feedServices.repostPost(token, postId, content);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['feed'] });
@@ -561,7 +520,8 @@ export default function FeedTab({ activeHashtag, onHashtagSelect }: FeedTabProps
         data.pollOption2?.trim() ||
         data.pollOption3?.trim() ||
         data.pollOption4?.trim());
-    const hasContent = data.content.trim() || state.imageUrl || state.gifUrl || hasPoll;
+    const hasContent =
+      data.content.trim() || state.imageUrl || state.gifUrl || state.videoUrl || hasPoll;
     if (!hasContent) return;
 
     createPostMutation.mutate(data);
@@ -572,22 +532,17 @@ export default function FeedTab({ activeHashtag, onHashtagSelect }: FeedTabProps
     if (file) {
       try {
         const dataUrl = await readFileAsDataURL(file);
-        dispatch({ type: 'SET_IMAGE_URL', imageUrl: dataUrl });
+        if (file.type.startsWith('video/')) {
+          dispatch({ type: 'SET_VIDEO_URL', videoUrl: dataUrl });
+          dispatch({ type: 'SET_IMAGE_URL', imageUrl: undefined });
+          dispatch({ type: 'SET_GIF_URL', gifUrl: undefined });
+        } else {
+          dispatch({ type: 'SET_IMAGE_URL', imageUrl: dataUrl });
+          dispatch({ type: 'SET_VIDEO_URL', videoUrl: undefined });
+          dispatch({ type: 'SET_GIF_URL', gifUrl: undefined });
+        }
       } catch (error) {
-        alert(feedLabels.selectImageFile);
-      }
-    }
-  };
-
-  const handleRepostFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      try {
-        const dataUrl = await readFileAsDataURL(file);
-        setRepostImageUrl(dataUrl);
-        setRepostGifUrl(undefined);
-      } catch (error) {
-        alert(feedLabels.selectImageFile);
+        alert('Please select a valid image or video file');
       }
     }
   };
@@ -767,6 +722,45 @@ export default function FeedTab({ activeHashtag, onHashtagSelect }: FeedTabProps
                 </button>
               </div>
             )}
+            {state.videoUrl && (
+              <div style={{ position: 'relative', margin: '10px 0' }}>
+                <video
+                  src={state.videoUrl}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '300px',
+                    borderRadius: '12px',
+                    objectFit: 'contain',
+                    backgroundColor: 'rgb(var(--card))',
+                    display: 'block',
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: 'SET_VIDEO_URL', videoUrl: undefined })}
+                  style={{
+                    position: 'absolute',
+                    top: '8px',
+                    right: '8px',
+                    background: 'rgba(0, 0, 0, 0.6)',
+                    border: 'none',
+                    borderRadius: '50%',
+                    width: '32px',
+                    height: '32px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    color: 'white',
+                  }}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            )}
             {state.gifUrl && (
               <div style={{ position: 'relative', margin: '10px 0' }}>
                 <img
@@ -918,7 +912,7 @@ export default function FeedTab({ activeHashtag, onHashtagSelect }: FeedTabProps
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/*,video/*"
                   onChange={handleFileSelect}
                   style={{ display: 'none' }}
                   ref={fileInputRef}
@@ -977,7 +971,6 @@ export default function FeedTab({ activeHashtag, onHashtagSelect }: FeedTabProps
                 <button
                   type="button"
                   onClick={() => {
-                    setGifTarget('create');
                     setIsGifPickerOpen(true);
                   }}
                   style={{
@@ -1356,8 +1349,6 @@ export default function FeedTab({ activeHashtag, onHashtagSelect }: FeedTabProps
             if (repostMutation.isPending) return;
             setRepostModalPost(null);
             setRepostText('');
-            setRepostImageUrl(undefined);
-            setRepostGifUrl(undefined);
           }}
         >
           <ModalContent
@@ -1372,8 +1363,6 @@ export default function FeedTab({ activeHashtag, onHashtagSelect }: FeedTabProps
                   if (repostMutation.isPending) return;
                   setRepostModalPost(null);
                   setRepostText('');
-                  setRepostImageUrl(undefined);
-                  setRepostGifUrl(undefined);
                 }}
               >
                 <X size={24} />
@@ -1457,99 +1446,7 @@ export default function FeedTab({ activeHashtag, onHashtagSelect }: FeedTabProps
               </div>
             </div>
 
-            {(repostImageUrl || repostGifUrl) && (
-              <div style={{ position: 'relative', margin: '10px 0' }}>
-                <img
-                  src={repostGifUrl || repostImageUrl}
-                  alt="Repost media"
-                  style={{
-                    maxWidth: '100%',
-                    maxHeight: '300px',
-                    borderRadius: '12px',
-                    objectFit: 'contain',
-                    backgroundColor: 'rgb(var(--card))',
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRepostImageUrl(undefined);
-                    setRepostGifUrl(undefined);
-                  }}
-                  style={{
-                    position: 'absolute',
-                    top: '8px',
-                    right: '8px',
-                    background: 'rgba(0, 0, 0, 0.6)',
-                    border: 'none',
-                    borderRadius: '50%',
-                    width: '32px',
-                    height: '32px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    color: 'white',
-                  }}
-                >
-                  <X size={20} />
-                </button>
-              </div>
-            )}
-
             <CommentInputContainer>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleRepostFileSelect}
-                  style={{ display: 'none' }}
-                  ref={repostFileInputRef}
-                />
-                <button
-                  type="button"
-                  onClick={() => repostFileInputRef.current?.click()}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: '8px',
-                    borderRadius: '999px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'rgb(var(--accent))',
-                  }}
-                  title={feedLabels.addImage}
-                >
-                  <ImageIcon size={20} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGifTarget('repost');
-                    setIsGifPickerOpen(true);
-                    setRepostImageUrl(undefined);
-                  }}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: '8px 10px',
-                    borderRadius: '999px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'rgb(var(--accent))',
-                    fontSize: '0.75rem',
-                    fontWeight: 600,
-                  }}
-                  title="Add GIF"
-                >
-                  GIF
-                </button>
-              </div>
-
               <PostButton
                 type="button"
                 disabled={repostMutation.isPending}
@@ -1566,15 +1463,11 @@ export default function FeedTab({ activeHashtag, onHashtagSelect }: FeedTabProps
                       postId: targetPostId,
                       isReposted: false,
                       content: trimmed || undefined,
-                      imageUrl: repostImageUrl || undefined,
-                      gifUrl: repostGifUrl || undefined,
                     },
                     {
                       onSettled: () => {
                         setRepostModalPost(null);
                         setRepostText('');
-                        setRepostImageUrl(undefined);
-                        setRepostGifUrl(undefined);
                       },
                     } as any,
                   );
@@ -1660,7 +1553,6 @@ export default function FeedTab({ activeHashtag, onHashtagSelect }: FeedTabProps
         <ModalOverlay
           onClick={() => {
             setIsGifPickerOpen(false);
-            setGifTarget(null);
           }}
         >
           <ModalContent onClick={(e) => e.stopPropagation()}>
@@ -1669,7 +1561,6 @@ export default function FeedTab({ activeHashtag, onHashtagSelect }: FeedTabProps
               <ModalCloseButton
                 onClick={() => {
                   setIsGifPickerOpen(false);
-                  setGifTarget(null);
                 }}
               >
                 <X size={24} />
@@ -1720,13 +1611,10 @@ export default function FeedTab({ activeHashtag, onHashtagSelect }: FeedTabProps
                   key={gif.id}
                   type="button"
                   onClick={() => {
-                    if (gifTarget === 'repost') {
-                      setRepostGifUrl(gif.originalUrl);
-                    } else {
-                      dispatch({ type: 'SET_GIF_URL', gifUrl: gif.originalUrl });
-                    }
+                    dispatch({ type: 'SET_GIF_URL', gifUrl: gif.originalUrl });
+                    dispatch({ type: 'SET_IMAGE_URL', imageUrl: undefined });
+                    dispatch({ type: 'SET_VIDEO_URL', videoUrl: undefined });
                     setIsGifPickerOpen(false);
-                    setGifTarget(null);
                   }}
                   style={{
                     padding: 0,

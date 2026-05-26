@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -13,6 +14,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { FirebaseAuthGuard } from '../firebase/firebase-auth.guard';
 import { NotificationsService } from './notification.service';
+import { UsersService } from '../users/users.service';
 
 @UseGuards(FirebaseAuthGuard)
 @Controller('notifications')
@@ -20,13 +22,45 @@ export class NotificationsController {
   constructor(
     private prisma: PrismaService,
     private notifications: NotificationsService,
+    private usersService: UsersService,
   ) {}
 
   @Post('token')
-  async saveToken(@Body() body: { userId: string; token: string }) {
-    return this.prisma.user.update({
-      where: { id: body.userId },
-      data: { fcmToken: body.token } as Prisma.UserUpdateInput,
+  async saveToken(
+    @CurrentUser() user: { uid: string; email?: string },
+    @Body() body: { token: string },
+  ) {
+    const token = typeof body.token === 'string' ? body.token.trim() : '';
+
+    if (user.email) {
+      await this.usersService.syncFirebaseUser(user.uid, user.email);
+    } else {
+      const row = await this.prisma.user.findUnique({
+        where: { id: user.uid },
+      });
+      if (!row) {
+        throw new BadRequestException(
+          'User profile is not synced yet; complete registration or call POST /users/me first.',
+        );
+      }
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // Ensure one device token is mapped to only one account.
+      if (token) {
+        await tx.user.updateMany({
+          where: {
+            id: { not: user.uid },
+            fcmToken: token,
+          },
+          data: { fcmToken: null },
+        });
+      }
+
+      return tx.user.update({
+        where: { id: user.uid },
+        data: { fcmToken: token || null } as Prisma.UserUpdateInput,
+      });
     });
   }
 

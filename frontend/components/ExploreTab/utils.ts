@@ -1,4 +1,4 @@
-import type { ExploreHistoryItem } from './types';
+import type { ExploreHistoryItem, ExploreUserHistoryItem } from './types';
 
 export const HISTORY_KEY = 'twitter-like-explore-history';
 
@@ -16,9 +16,9 @@ export function parseHistory(raw: string | null): ExploreHistoryItem[] {
 }
 
 export function buildNextHistory(
-  previous: ExploreHistoryItem[],
-  user: ExploreHistoryItem,
+  previous: ExploreUserHistoryItem[],
+  user: ExploreUserHistoryItem,
   maxEntries = 25,
-): ExploreHistoryItem[] {
+): ExploreUserHistoryItem[] {
   return [user, ...previous.filter((u) => u.id !== user.id)].slice(0, maxEntries);
 }

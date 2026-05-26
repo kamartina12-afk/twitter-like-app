@@ -483,6 +483,13 @@ export class ConversationService {
             (user as any).fcmToken,
             'Group chat invite',
             `${actorName} invited you to join ${groupName}.`,
+            {
+              data: {
+                type: 'group_invite',
+                href: '/notifications',
+                conversationId: conversation.id,
+              },
+            },
           ),
         ),
       );

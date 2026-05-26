@@ -1,9 +1,8 @@
 import { apiUrl } from './notificationServices';
 import type { SearchResult } from '@/components/SearchBar/types';
+import type { ExploreHistoryItem } from '@/components/ExploreTab/types';
 
-export type SearchHistoryItem = SearchResult & {
-  historyId: string;
-};
+export type SearchHistoryItem = ExploreHistoryItem;
 
 export const searchHistoryServices = {
   async fetchHistory(token: string): Promise<SearchHistoryItem[]> {

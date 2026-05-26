@@ -21,6 +21,15 @@ export class MessageService {
   // 200 MB combined across all attachments
   private readonly MAX_TOTAL_ATTACHMENTS_SIZE_BYTES = 200 * 1024 * 1024;
 
+  private extractMentions(text: string | undefined): string[] {
+    if (!text) return [];
+    const matches = Array.from(
+      text.matchAll(/@([\p{L}\p{N}_]+)\b/gu),
+      (m) => m[1]?.toLowerCase(),
+    ).filter(Boolean) as string[];
+    return Array.from(new Set(matches));
+  }
+
   async create(conversationId: string, senderId: string, content: string) {
     const participant = await this.prisma.conversationParticipant.findUnique({
       where: {
@@ -185,52 +194,113 @@ export class MessageService {
             ),
         );
 
-        if (recipients.length === 0) {
-          return;
+        if (recipients.length > 0) {
+          const sender = await this.prisma.user.findUnique({
+            where: { id: senderId },
+            select: {
+              username: true,
+              displayName: true,
+            },
+          });
+
+          const actorName = sender?.displayName || sender?.username || 'Someone';
+          const recipientIds = recipients.map((p) => p.userId);
+          const chatHref = `/(tabs)/chat?conversationId=${encodeURIComponent(conversationId)}`;
+
+          let mentionRecipientIds = new Set<string>();
+          if (conversation.type === 'group') {
+            const mentionHandles = this.extractMentions(safeText);
+            if (mentionHandles.length > 0) {
+              const mentionedUsers = await (this.prisma as any).user.findMany({
+                where: {
+                  id: { in: recipientIds },
+                  OR: mentionHandles.map((handle) => ({
+                    username: { equals: handle, mode: 'insensitive' },
+                  })),
+                },
+                select: { id: true, fcmToken: true },
+              });
+              mentionRecipientIds = new Set(mentionedUsers.map((u: any) => u.id));
+
+              if (mentionRecipientIds.size > 0) {
+                const mentionMessage = `${actorName} mentioned you in a group chat.`;
+                const mentionNotifications = await this.prisma.$transaction(
+                  Array.from(mentionRecipientIds).map((mentionedId) =>
+                    (this.prisma as any).notification.create({
+                      data: {
+                        userId: mentionedId,
+                        type: 'mention',
+                        message: mentionMessage,
+                      },
+                    }),
+                  ),
+                );
+
+                mentionNotifications.forEach((n: any) => {
+                  this.notifications.broadcastInAppNotification(n.userId, n);
+                });
+
+                await Promise.all(
+                  mentionedUsers.map((user: any) =>
+                    this.notifications.sendPushNotification(
+                      user.fcmToken,
+                      'Mention in group chat',
+                      mentionMessage,
+                      {
+                        data: {
+                          type: 'mention',
+                          href: chatHref,
+                          conversationId,
+                        },
+                      },
+                    ),
+                  ),
+                );
+              }
+            }
+          }
+
+          const messageRecipients = recipients.filter((p) => !mentionRecipientIds.has(p.userId));
+          if (messageRecipients.length > 0) {
+            const notificationMessage = `${actorName} sent you a message.`;
+            const notifications = await this.prisma.$transaction(
+              messageRecipients.map((p) =>
+                (this.prisma as any).notification.create({
+                  data: {
+                    userId: p.userId,
+                    type: 'message',
+                    message: notificationMessage,
+                  },
+                }),
+              ),
+            );
+
+            notifications.forEach((n: any) => {
+              this.notifications.broadcastInAppNotification(n.userId, n);
+            });
+
+            const targetUsers = await this.prisma.user.findMany({
+              where: { id: { in: messageRecipients.map((p) => p.userId) } },
+              select: { id: true, fcmToken: true },
+            });
+
+            await Promise.all(
+              targetUsers.map((user) =>
+                this.notifications.sendPushNotification(
+                  user.fcmToken,
+                  'New message',
+                  notificationMessage,
+                  {
+                    data: {
+                      type: 'message',
+                      href: chatHref,
+                    },
+                  },
+                ),
+              ),
+            );
+          }
         }
-
-        const sender = await this.prisma.user.findUnique({
-          where: { id: senderId },
-          select: {
-            username: true,
-            displayName: true,
-          },
-        });
-
-        const actorName = sender?.displayName || sender?.username || 'Someone';
-
-        const notificationMessage = `${actorName} sent you a message.`;
-
-        const notifications = await this.prisma.$transaction(
-          recipients.map((p) =>
-            (this.prisma as any).notification.create({
-              data: {
-                userId: p.userId,
-                type: 'message',
-                message: notificationMessage,
-              },
-            }),
-          ),
-        );
-
-        notifications.forEach((n: any) => {
-          this.notifications.broadcastInAppNotification(n.userId, n);
-        });
-
-        const targetUsers = await this.prisma.user.findMany({
-          where: { id: { in: recipients.map((p) => p.userId) } },
-          select: { id: true, fcmToken: true },
-        });
-
-        await Promise.all(
-          targetUsers.map((user) =>
-            this.notifications.sendPushNotification(
-              user.fcmToken,
-              'New message',
-              notificationMessage,
-            ),
-          ),
-        );
       }
     } catch {
       // ignore notification failures

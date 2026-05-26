@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented in this file.
 
+## 2026-03-22 – Mobile app (Expo), post video fields, feed updates
+
+### Added
+
+- **Mobile (`mobile/`):** Expo SDK 54 app with **Expo Router** (tabs, auth screens, profile, explore, chat, notifications). Shared **Firebase** auth, **TanStack Query**, feed/explore/post UI, chat (Socket.IO + voice attachments), profile tabs, search, and push notification hooks.
+- **Backend – post media:** `Post` model fields **`videoUrl`** and **`mediaAspectRatio`**; Prisma migration `20260322111513_add_post_video_and_aspect_ratio`. Post create/read paths and related services updated to support video URLs and aspect ratio where applicable.
+- **Mobile – video playback:** **`expo-video`** (`VideoView` / `useVideoPlayer`) via shared **`components/media/ExpoVideoPlayer.tsx`**. The **`expo-video`** config plugin is registered in `mobile/app.json`.
+- **Mobile – shared types:** Form and screen-only TypeScript types live under **`mobile/types/`** (e.g. register/login/followers) so they are not mistaken for Expo Router routes.
+
+### Changed
+
+- **Backend:** `PostService` / `PostController` for video-capable posts; **`notification.service`** / **`notification.controller`** adjustments; **`saved-posts.service`** and **`users.service`** aligned with new post fields; **`main.ts`** updated as needed for the app bootstrap.
+- **Frontend:** **`frontend/components/FeedTab/PostCard.tsx`** and **`frontend/components/FeedTab/types/index.ts`** updated so the web feed types and card align with API posts that can include video-related data.
+- **Mobile – image picker:** Replaced deprecated **`ImagePicker.MediaTypeOptions`** with **`mediaTypes`** arrays using **`'images'`** / **`'videos'`** (see Expo ImagePicker docs).
+- **Mobile – Expo Router:** Removed non-route **`.types.ts`** files from **`mobile/app/`** (they were treated as routes and triggered “missing default export” warnings). Imports now use **`@/types/...`**.
+
+### Removed
+
+- **Mobile:** In-app route files **`app/register.types.ts`**, **`app/login.types.ts`**, **`app/followers.types.ts`** (replaced by **`mobile/types/`**).
+
+---
+
 ## 2026-03-12 – Rate limiting for third-party APIs
 
 ### Added

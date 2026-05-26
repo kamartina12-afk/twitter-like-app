@@ -85,12 +85,13 @@ export class UsersController {
   @Post('me')
   async syncUser(
     @Req() req: AuthRequest,
-    @Body() body: { birthDate?: string },
+    @Body() body: { birthDate?: string; username?: string },
   ) {
     return this.usersService.syncFirebaseUser(
       req.user.uid,
       req.user.email!,
       body?.birthDate,
+      body?.username,
     );
   }
 

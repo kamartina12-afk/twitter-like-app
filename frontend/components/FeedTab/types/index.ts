@@ -1,8 +1,11 @@
+import { UseMutationResult } from '@tanstack/react-query';
+
 export interface Post {
   id: string;
   content: string;
   imageUrl?: string;
   gifUrl?: string;
+  videoUrl?: string;
   avatarUrl?: string;
   authorId: string;
   authorUsername: string;
@@ -22,6 +25,7 @@ export interface Post {
   originalPostContent?: string;
   originalPostImageUrl?: string;
   originalPostGifUrl?: string;
+  originalPostVideoUrl?: string;
   originalPostPoll?: {
     id: string;
     question?: string;
@@ -71,6 +75,7 @@ export interface CreatePostForm {
   content: string;
   imageUrl?: string;
   gifUrl?: string;
+  videoUrl?: string;
   pollQuestion?: string;
   pollOption1?: string;
   pollOption2?: string;
@@ -78,3 +83,36 @@ export interface CreatePostForm {
   pollOption4?: string;
   pollDurationMinutes?: number;
 }
+
+export type PostCardProps = {
+  post: Post;
+  formatDate: (date: string) => string;
+  youRepostedLabel: string;
+  repostedLabel: string;
+  currentUserId: string | undefined;
+  isSaved: boolean;
+  isBlocked: boolean;
+  onHashtagSelect?: (tag: string) => void;
+  onComment: (post: Post) => void;
+  onRepost: (post: Post) => void;
+  onDelete: (post: Post) => void;
+  onToggleSave: (post: Post) => void;
+  onBlockUser: (id: string, username: string) => void;
+  likeMutation: UseMutationResult<void, Error, { postId: string; isLiked: boolean }>;
+  repostMutation: UseMutationResult<
+    void,
+    Error,
+    {
+      postId: string;
+      isReposted: boolean;
+      content?: string;
+      imageUrl?: string;
+      gifUrl?: string;
+      videoUrl?: string;
+    }
+  >;
+  pollVoteMutation: UseMutationResult<unknown, Error, { postId: string; optionId: string }>;
+  deletePostMutation: UseMutationResult<void, Error, { postId: string }>;
+  showSaveButton?: boolean;
+  showBlockButton?: boolean;
+};

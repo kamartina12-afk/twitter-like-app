@@ -60,7 +60,7 @@ export class UsersService {
         id: { not: currentUserId },
         OR: [
           { username: { contains: query, mode: 'insensitive' } },
-          { email: { contains: query, mode: 'insensitive' } },
+          { displayName: { contains: query, mode: 'insensitive' } },
         ],
         // Do not return users that the current user has blocked
         blockedBy: {
@@ -83,14 +83,33 @@ export class UsersService {
   }
 
   async getProfile(userId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        posts: true,
-        followers: true,
-        following: true,
-      },
-    });
+    const [user, totalLikesReceived, totalVideoViewsReceived] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          posts: true,
+          followers: true,
+          following: true,
+        },
+      }),
+      (this.prisma as any).like.count({
+        where: {
+          post: {
+            userId,
+          },
+        },
+      }),
+      (this.prisma as any).postView.count({
+        where: {
+          post: {
+            userId,
+            videoUrl: {
+              not: null,
+            },
+          },
+        },
+      }),
+    ]);
 
     if (!user) {
       return null;
@@ -110,12 +129,16 @@ export class UsersService {
       postsCount: user.posts.length,
       followersCount: user.followers.length,
       followingCount: user.following.length,
+      totalLikesReceived,
+      totalVideoViewsReceived,
     };
   }
 
   async getProfileByUsername(username: string, viewerId?: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { username },
+    const user = await this.prisma.user.findFirst({
+      where: {
+        OR: [{ username }, { id: username }],
+      },
       include: {
         posts: true,
         followers: true,
@@ -231,7 +254,12 @@ export class UsersService {
     return this.getProfile(userId);
   }
 
-  async syncFirebaseUser(id: string, email: string, birthDate?: string) {
+  async syncFirebaseUser(
+    id: string,
+    email: string,
+    birthDate?: string,
+    username?: string,
+  ) {
     const existing = await this.prisma.user.findUnique({
       where: { id },
     });
@@ -262,10 +290,23 @@ export class UsersService {
       parsedBirthDate = d;
     }
 
+    const preferredUsername = username?.trim();
+    const normalizedUsername = preferredUsername || email.split('@')[0];
+
+    if (preferredUsername) {
+      const existingUsername = await this.prisma.user.findUnique({
+        where: { username: preferredUsername },
+      });
+
+      if (existingUsername && existingUsername.id !== id) {
+        throw new BadRequestException('Username is already taken');
+      }
+    }
+
     const data: any = {
       id,
       email,
-      username: email.split('@')[0],
+      username: normalizedUsername,
     };
 
     if (parsedBirthDate) {

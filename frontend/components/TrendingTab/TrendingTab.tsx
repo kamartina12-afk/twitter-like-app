@@ -18,6 +18,8 @@ import {
   TrendingTitle,
 } from './TrendingTab.styles';
 
+const MAX_TRENDING_HASHTAGS = 5;
+
 export default function TrendingTab({
   initialScope = 'global',
   activeHashtag,
@@ -34,12 +36,13 @@ export default function TrendingTab({
       if (!token) {
         throw new Error('Not authenticated');
       }
-      return hashtagServices.fetchTrending(token, 20, 1, scope);
+      return hashtagServices.fetchTrending(token, MAX_TRENDING_HASHTAGS, 1, scope);
     },
     enabled: !!user,
   });
 
-  const selectedHashtag = activeHashtag ?? localActiveHashtag ?? trending[0]?.name ?? null;
+  const visibleTrending = trending.slice(0, MAX_TRENDING_HASHTAGS);
+  const selectedHashtag = activeHashtag ?? localActiveHashtag ?? visibleTrending[0]?.name ?? null;
 
   return (
     <TrendingCard>
@@ -66,11 +69,11 @@ export default function TrendingTab({
       <HashtagsContainer>
         {isLoadingTrending && <InfoText>Loading trending hashtags...</InfoText>}
 
-        {!isLoadingTrending && trending.length === 0 && (
+        {!isLoadingTrending && visibleTrending.length === 0 && (
           <InfoText>No trending hashtags yet. Start a conversation with a #hashtag.</InfoText>
         )}
 
-        {trending.map((tag) => {
+        {visibleTrending.map((tag) => {
           const isActive = selectedHashtag === tag.name;
           return (
             <HashtagChip
@@ -91,7 +94,7 @@ export default function TrendingTab({
         })}
       </HashtagsContainer>
 
-      {!selectedHashtag && trending.length > 0 && (
+      {!selectedHashtag && visibleTrending.length > 0 && (
         <HelperText>Select a hashtag above to explore related posts.</HelperText>
       )}
     </TrendingCard>
